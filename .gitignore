@@ -10,3 +10,5 @@ env/
 .vscode/
 *.swp
 *.swo
+finbert_metrics.json
+__pycache__/
