@@ -12,3 +12,10 @@ env/
 *.swo
 finbert_metrics.json
 __pycache__/
+
+# Local AI-assistant scaffolding (not for the repo)
+CLAUDE.md
+.claude/
+
+# Generated dependency catalog (via /packages skill); kept local, not pushed
+docs/PACKAGES.md
