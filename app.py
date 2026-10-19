@@ -6,6 +6,15 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 
+from analytics import (
+    analyze_sentiment_dict,
+    clean_prices,
+    parse_news_item,
+    portfolio_stats,
+    simulate_gbm,
+    value_at_risk,
+)
+
 # Page config
 st.set_page_config(
     page_title="Financial Crisis Analysis Tool",
@@ -32,21 +41,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-# Helper: Dictionary-based financial sentiment analyzer (no heavy model downloads required by default)
-def analyze_sentiment_dict(text):
-    pos_words = {'surge', 'gain', 'growth', 'positive', 'bullish', 'profit', 'upgrade', 'climb', 'rise', 'beat', 'outperform', 'strong', 'optimistic'}
-    neg_words = {'drop', 'loss', 'crash', 'negative', 'bearish', 'inflation', 'recession', 'crisis', 'fall', 'slump', 'down', 'deficit', 'warn', 'debt', 'risk'}
-    words = text.lower().replace('.', '').replace(',', '').split()
-    score = 0
-    for w in words:
-        if w in pos_words:
-            score += 0.2
-        elif w in neg_words:
-            score -= 0.2
-    score = max(min(score, 1.0), -1.0)
-    label = "POSITIVE" if score > 0 else "NEGATIVE" if score < 0 else "NEUTRAL"
-    return {"label": label, "score": abs(score) if score != 0 else 0.5}
 
 # Try importing FinBERT model (optional fallback)
 @st.cache_resource
@@ -100,15 +94,8 @@ use_finbert = st.sidebar.checkbox("Use FinBERT Transformer Model (Downloads ~400
 @st.cache_data(show_spinner="Fetching historical stock data...")
 def get_stock_data(tickers, start, end):
     try:
-        data = yf.download(tickers, start=start, end=end)['Adj Close']
-        # If single ticker, download returns a Series, convert to DataFrame
-        if isinstance(data, pd.Series):
-            data = data.to_frame(name=tickers[0])
-        # Drop columns with all NaNs
-        data = data.dropna(how='all')
-        # Fill missing values
-        data = data.ffill().bfill()
-        return data
+        raw = yf.download(tickers, start=start, end=end, auto_adjust=True, progress=False)
+        return clean_prices(raw, tickers)
     except Exception as e:
         st.error(f"Error fetching data: {e}")
         return None
@@ -135,21 +122,12 @@ if stock_data is not None and not stock_data.empty:
     st.plotly_chart(fig_historical, use_container_width=True)
 
     # Core Calculations
-    returns = stock_data.pct_returns = stock_data.pct_change().dropna()
-    weights = np.ones(len(tickers)) / len(tickers)  # Equal weighted
-
-    # Portfolio metrics
-    cov_matrix = returns.cov()
-    avg_returns = returns.mean()
-    port_mean = np.sum(avg_returns * weights)
-    port_var = np.dot(weights.T, np.dot(cov_matrix, weights))
-    port_std = np.sqrt(port_var)
-    
-    # Annualized Metrics (assuming 252 trading days)
-    ann_return = port_mean * 252
-    ann_vol = port_std * np.sqrt(252)
-    risk_free_rate = 0.04  # 4% risk free rate estimate
-    sharpe_ratio = (ann_return - risk_free_rate) / ann_vol if ann_vol > 0 else 0
+    # Equal weighted across the tickers that actually returned data, so an
+    # invalid ticker no longer breaks the weights/covariance shapes.
+    returns = stock_data.pct_change().dropna()
+    stats = portfolio_stats(returns)
+    port_mean, port_var, port_std = stats["mean"], stats["var"], stats["std"]
+    ann_return, ann_vol, sharpe_ratio = stats["ann_return"], stats["ann_vol"], stats["sharpe"]
 
     st.markdown("### 📊 Calculated Portfolio Ratios (Crisis Period)")
     col1, col2, col3 = st.columns(3)
@@ -165,18 +143,9 @@ if stock_data is not None and not stock_data.empty:
     st.markdown(f"Running **{num_simulations}** iterations of Geometric Brownian Motion over a **{time_horizon}** trading-day horizon.")
 
     if st.button("🚀 Run Monte Carlo Simulation"):
-        # Simulation matrix
-        sim_results = np.zeros((time_horizon, num_simulations))
-        # Daily return parameters
-        daily_drift = port_mean - 0.5 * port_var
-        
-        for sim in range(num_simulations):
-            # Generate random normal returns
-            random_noise = np.random.normal(0, 1, time_horizon)
-            # Accumulate compound returns
-            daily_returns = np.exp(daily_drift + port_std * random_noise)
-            # Cumulative returns array
-            sim_results[:, sim] = initial_investment * np.cumprod(daily_returns)
+        sim_results = simulate_gbm(
+            port_mean, port_var, port_std, time_horizon, num_simulations, initial_investment
+        )
 
         # Plot Simulation Pathways
         fig_sim = go.Figure()
@@ -200,9 +169,8 @@ if stock_data is not None and not stock_data.empty:
 
         # Value at Risk (VaR) Calculation
         final_values = sim_results[-1, :]
-        percentile_5 = np.percentile(final_values, 5)
-        var_dollar = initial_investment - percentile_5
-        var_percentage = (var_dollar / initial_investment) * 100
+        var = value_at_risk(final_values, initial_investment, percentile=5)
+        percentile_5, var_dollar, var_percentage = var["threshold"], var["dollar"], var["percent"]
 
         st.subheader("⚠️ Risk Assessment (Value at Risk)")
         col_r1, col_r2 = st.columns(2)
@@ -233,11 +201,7 @@ if stock_data is not None and not stock_data.empty:
         try:
             ticker_obj = yf.Ticker(primary_ticker)
             ticker_news = ticker_obj.news[:5]  # Take top 5 news
-            for item in ticker_news:
-                title = item.get("title", "")
-                publisher = item.get("publisher", "")
-                link = item.get("link", "#")
-                news_data.append({"title": title, "publisher": publisher, "link": link})
+            news_data = [n for n in map(parse_news_item, ticker_news) if n["title"]]
         except Exception as e:
             st.warning(f"Could not load live news: {e}. Showing mock sector news.")
             news_data = [
