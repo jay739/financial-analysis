@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect x="0" y="0" width="512" height="512" rx="123" ry="123" fill="#0B0D10"/>
+  <g id="icon">
+    <!-- portfolio path through a crisis and back -->
+    <polyline points="92,300 164,228 216,268 276,352 344,216 420,140" fill="none" stroke="#4ADE80" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- the drawdown point Value at Risk measures -->
+    <circle cx="276" cy="352" r="28" fill="#F2F0EA" stroke="#0B0D10" stroke-width="14"/>
+  </g>
+</svg>
