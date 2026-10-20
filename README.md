@@ -1,5 +1,9 @@
 # Financial Crisis Analysis & Portfolio Risk Tool
 
+<p align="center">
+  <img src="docs/logo.svg" alt="financial-analysis logo" width="128" />
+</p>
+
 This repository contains an interactive financial dashboard built using **Streamlit** and **Plotly**. It integrates real-time stock market data loading, **Value at Risk (VaR)** calculations, **Monte Carlo portfolio simulations**, and **financial news sentiment analysis** using Hugging Face's FinBERT model.
 
 ## Features
